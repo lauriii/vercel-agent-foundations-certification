@@ -19,8 +19,8 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import type { ShoppingAgentUIMessage } from "@/lib/agent";
+import { AgentThinking, isAgentWaiting } from "@/components/agent-thinking";
 import { AgentProductList } from "./agent-product-list";
-import { Agent } from "node:http";
 import { AgentProductCard } from "./agent-product-card";
 
 export function AgentChat() {
@@ -31,7 +31,7 @@ export function AgentChat() {
     return localStorage.getItem("active-workflow-run-id") ?? undefined;
   }, []);
 
-  const { messages, error, sendMessage } = useChat<ShoppingAgentUIMessage>({
+  const { messages, error, sendMessage, status, stop } = useChat<ShoppingAgentUIMessage>({
     resume: Boolean(activeRunId),
     transport: new WorkflowChatTransport({
       api: "/api/chat",
@@ -47,7 +47,9 @@ export function AgentChat() {
       },
     }),
   });
-  
+  const waiting = isAgentWaiting(status, messages);
+  const isBusy = status === "submitted" || status === "streaming";
+
   const handleSubmit = (message: PromptInputMessage) => {
     sendMessage({ text: message.text });
     setInput("");
@@ -63,6 +65,7 @@ export function AgentChat() {
             message.parts.map((part, i) => {
               switch (part.type) {
                 case "text":
+                  if (!part.text.trim()) return null;
                   return (
                     <Message key={`${message.id}-${i}`} from={message.role}>
                       <MessageContent>
@@ -83,6 +86,13 @@ export function AgentChat() {
               }
             })
           )}
+          {waiting ? (
+            <Message from="assistant">
+              <MessageContent>
+                <AgentThinking />
+              </MessageContent>
+            </Message>
+          ) : null}
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
@@ -98,7 +108,11 @@ export function AgentChat() {
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools />
-            <PromptInputSubmit status="ready" disabled={!input.trim()} />
+            <PromptInputSubmit
+              status={status}
+              onStop={stop}
+              disabled={!isBusy && !input.trim()}
+            />
           </PromptInputFooter>
         </PromptInput>
       </div>
