@@ -13,7 +13,17 @@ import {
   searchProducts,
   getAllCategories,
 } from "@/lib/tools";
+import { createOrGetSandbox, SANDBOX_NAME } from "@/lib/sandbox";
 
+// ponytail: one path for both the prompt and the reader, they drifted apart before
+const MEMORIES_PATH = "/vercel/sandbox/memories.md";
+
+export async function readMemories() {
+  "use step";
+  const sandbox = await createOrGetSandbox(SANDBOX_NAME);
+  const buffer = await sandbox.readFileToBuffer({ path: MEMORIES_PATH });
+  return buffer ? new TextDecoder().decode(buffer) : null;
+}
 
 export const backOfficeInstructions = `
 You are the back-office assistant for the Vercel swag store. You have read-only access to returns, inventory, sales, and support tickets through tools, and a persistent bash sandbox for computation.
@@ -36,18 +46,53 @@ You are the back-office assistant for the Vercel swag store. You have read-only 
 export async function adminChatFlow(messages: UIMessage[]) {
   "use workflow";
   const modelMessages = await convertToModelMessages(messages);
+  const memories = await readMemories();
   const agent = new WorkflowAgent({
     model: "anthropic/claude-sonnet-5",
-    instructions: backOfficeInstructions,
-    tools: {
-      bash,
-      getReturnsHistory,
-      getInventoryStock,
-      getSalesAnalytics,
-      getSupportTickets,
-      searchProducts,
-      getAllCategories,
-    },
+    instructions: [
+      backOfficeInstructions,
+        "",
+        "## Memory",
+        `You have a memories file at ${MEMORIES_PATH}. Append to it with the bash tool. Its contents are loaded below at the start of every conversation.`,
+        "",
+        memories
+          ? `## Current memories\n\n${memories}`
+          : "No memories yet.",
+        "## Priority order for any request",
+        "1. Check your memories above and any scripts logged under '## Scripts for common tasks'. If a saved script handles this request, run it with bash and return the output.",
+        "2. Otherwise, do the task using the data tools and bash.",
+        "3. After answering, decide whether the task could be a reusable script for next time.",
+        "",
+        "## When to save",
+        "Append a line to memories.md when the user shares something that should color future answers:",
+        "- Presentation preferences (percentages vs raw counts, terse vs detailed breakdowns, currency formatting)",
+        "- Business context that's not derivable from the data (which products are seasonal, what 'normal' looks like for a metric, which stakeholder cares about what)",
+        "- Explanations the user has given for past anomalies so you don't re-flag them next time",
+        "- Corrections or feedback the user gave you on a prior answer",
+        "",
+        "Do NOT save routine questions, one-off lookups, or anything you can re-derive from the data tools.",
+        "",
+        "## How to use memory",
+        "Apply the current memories above to EVERY reply automatically, without being asked and without announcing it. If a memory sets a format preference, use it. If it explains a past anomaly, don't re-flag it. If it names a stakeholder or seasonal product, factor that in.",
+        "When a memory changed your answer in a way the user might not expect, mention it in one short line (e.g. 'Showing % as you prefer').",
+        "Save proactively: the moment the user states a preference, gives context, corrects you, or repeats a question, append a one-liner to the memories file in the same turn. Don't wait to be told to remember it.",
+        "Don't interview the user. Capture signal opportunistically as it comes up.",
+        "",
+        "## Reusable scripts",
+        "After answering a recurring operational question (top sellers last week, refund rate by category, weekly summary), consider writing a Python script that produces the same report on demand.",
+        "Save scripts to /vercel/sandbox/scripts/<name>.py so the user can re-run them later with `python3 scripts/<name>.py` instead of asking you again.",
+        "Stdlib only, no pandas. Make scripts self-contained and well-commented. Always invoke with `python3`, never `python`.",
+        "After creating a script, log it in memories.md under '## Scripts for common tasks' with the filename and a one-line description (e.g. `top_sellers_last_week.py: top 10 SKUs by units sold in the last 7 days`).",
+      ].join("\n"),
+      tools: {
+        bash,
+        getReturnsHistory,
+        getInventoryStock,
+        getSalesAnalytics,
+        getSupportTickets,
+        searchProducts,
+        getAllCategories,
+      },
   });
   await agent.stream({
     messages: modelMessages,
