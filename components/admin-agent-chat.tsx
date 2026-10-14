@@ -65,6 +65,55 @@ export function AdminAgentChat() {
                       </MessageContent>
                     </Message>
                   );
+                case "tool-bash": {
+                  const input = p.input as
+                    | { command?: string; summary?: string }
+                    | undefined;
+                  const output = p.output as
+                    | { stdout?: string; stderr?: string; exitCode?: number }
+                    | undefined;
+                  const done = p.state === "output-available";
+                  const failed = done && !!output?.exitCode;
+                  const summary = input?.summary ?? "Working on it";
+                  // ponytail: native <details> keeps raw output collapsed for non-technical users
+                  return (
+                    <details
+                      key={`${m.id}-${i}`}
+                      className="group my-2 rounded-lg border text-sm"
+                    >
+                      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground">
+                        <span className={done ? "" : "animate-pulse"}>
+                          {!done ? "⏳" : failed ? "⚠️" : "✓"}
+                        </span>
+                        <span>
+                          {!done ? `${summary}…` : summary}
+                          {failed && " (didn't work)"}
+                        </span>
+                        <span className="ml-auto text-xs underline-offset-2 group-open:hidden hover:underline">
+                          Show details
+                        </span>
+                        <span className="ml-auto hidden text-xs underline-offset-2 group-open:inline hover:underline">
+                          Hide details
+                        </span>
+                      </summary>
+                      <div className="max-h-80 overflow-auto border-t bg-neutral-900 px-3 py-2 font-mono text-xs">
+                        <div className="font-semibold text-neutral-100">
+                          $ {input?.command}
+                        </div>
+                        {output?.stdout && (
+                          <pre className="mt-1 whitespace-pre-wrap text-neutral-300">
+                            {output.stdout}
+                          </pre>
+                        )}
+                        {output?.stderr && (
+                          <pre className="mt-1 whitespace-pre-wrap text-red-400">
+                            {output.stderr}
+                          </pre>
+                        )}
+                      </div>
+                    </details>
+                  );
+                }
                 default:
                   return null;
               }
